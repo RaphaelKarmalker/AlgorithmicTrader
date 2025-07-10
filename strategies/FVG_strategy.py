@@ -12,7 +12,7 @@ sys.path.append(str(project_root))
 
 from tools.structure.retest import RetestAnalyser
 from tools.structure.fvg import FVG_Analyser
-from tools.risk.risk_manager import RiskManager
+from tools.order_management.risk_manager import RiskManager
 
 from nautilus_trader.trading import Strategy
 from nautilus_trader.trading.config import StrategyConfig
@@ -29,9 +29,9 @@ from nautilus_trader.common.enums import LogColor
 
 from core.visualizing.backtest_visualizer_prototype import BacktestDataCollector
 from tools.help_funcs.help_funcs_strategy import create_tags
+from .base_strategy import BaseStrategy  # Use relative import
 
 # Import new modular classes
-
 
 class FVGStrategyConfig(StrategyConfig):
     instrument_id: InstrumentId
@@ -40,26 +40,16 @@ class FVGStrategyConfig(StrategyConfig):
     #...
     close_positions_on_stop: bool = True 
     
-class FVGStrategy(Strategy):
+class FVGStrategy(BaseStrategy):
     def __init__(self, config: FVGStrategyConfig):
         super().__init__(config)
-        self.instrument_id = config.instrument_id
-        if isinstance(config.bar_type, str):
-            self.bar_type = BarType.from_str(config.bar_type)
-        else:
-            self.bar_type = config.bar_type
-        self.trade_size = config.trade_size
         
+        self.trade_size = config.trade_size
         # Initialize new modular classes
         self.fvg_detector = FVG_Analyser()
         self.retest_analyser = RetestAnalyser()
         self.risk_manager = None  # Will be initialized with account balance
         
-        self.close_positions_on_stop = config.close_positions_on_stop
-        self.venue = self.instrument_id.venue
-        self.realized_pnl = 0
-        self.bar_counter = 0
-
     def on_start(self) -> None:
         self.instrument = self.cache.instrument(self.instrument_id)
         self.subscribe_bars(self.bar_type)
@@ -96,6 +86,7 @@ class FVGStrategy(Strategy):
 
         # Update visualizer data
         self.update_visualizer_data(bar, usdt_balance)
+
 
     def check_for_bullish_retest(self, bar: Bar, usdt_balance: Decimal) -> None:
         """Check for bullish FVG retests and execute buy orders if conditions are met."""
@@ -177,17 +168,7 @@ class FVGStrategy(Strategy):
         
         self.log.info(f"Order-Submit: Entry={entry_price}, SL={stop_loss}, TP={take_profit}, Size={position_size}, USDT={usdt_balance}")
 
-    def update_visualizer_data(self, bar: Bar, usdt_balance: Decimal) -> None:
-        """Update data for the visualizer/collector."""
-        net_position = self.portfolio.net_position(self.instrument_id)
-        unrealized_pnl = self.portfolio.unrealized_pnl(self.instrument_id)
-        
-        self.log.info(f"acc balances: {usdt_balance}", LogColor.RED)
 
-        self.collector.add_indicator(timestamp=bar.ts_event, name="position", value=self.portfolio.net_position(self.instrument_id) if self.portfolio.net_position(self.instrument_id) is not None else None)
-        self.collector.add_indicator(timestamp=bar.ts_event, name="unrealized_pnl", value=float(unrealized_pnl) if unrealized_pnl is not None else None)
-        self.collector.add_indicator(timestamp=bar.ts_event, name="realized_pnl", value=float(self.realized_pnl) if self.realized_pnl is not None else None)
-        self.collector.add_bar(timestamp=bar.ts_event, open_=bar.open, high=bar.high, low=bar.low, close=bar.close)
 
     def check_for_fvg(self):
         """Check for new FVGs and set retest zones."""
@@ -202,39 +183,16 @@ class FVGStrategy(Strategy):
             self.log.info(f"Bearishe FVG erkannt: Gap von {fvg_high} bis {fvg_low}") 
             self.retest_analyser.set_box_retest_zone(upper=fvg_high, lower=fvg_low, long_retest=False)
 
-    def close_position(self) -> None:
-        position = self.get_position()
-        if position is not None and position.is_open:
-            super().close_position(position)
-        
-    def on_stop(self) -> None:
-        position = self.get_position()
-        if self.close_positions_on_stop and position is not None and position.is_open:
-            self.close_position()
-        self.log.info("Strategy stopped!")
+    def update_visualizer_data(self, bar: Bar, usdt_balance: Decimal) -> None:
 
-        logging_message = self.collector.save_data()
-        self.log.info(logging_message, color=LogColor.GREEN)
+        unrealized_pnl = self.portfolio.unrealized_pnl(self.instrument_id)
+        self.collector.add_indicator(timestamp=bar.ts_event, name="position", value=self.portfolio.net_position(self.instrument_id) if self.portfolio.net_position(self.instrument_id) is not None else None)
+        self.collector.add_indicator(timestamp=bar.ts_event, name="unrealized_pnl", value=float(unrealized_pnl) if unrealized_pnl is not None else None)
+        self.collector.add_indicator(timestamp=bar.ts_event, name="realized_pnl", value=float(self.realized_pnl) if self.realized_pnl is not None else None)
+        self.collector.add_bar(timestamp=bar.ts_event, open_=bar.open, high=bar.high, low=bar.low, close=bar.close)
 
-    def on_order_filled(self, order_filled) -> None:
-        """
-        Actions to be performed when an order is filled.
-        """
-        ret = self.collector.add_trade_details(order_filled)
-        self.log.info(
-            f"Order filled: {order_filled.commission}", color=LogColor.GREEN)
+        #######################
 
-    def on_position_closed(self, position_closed) -> None:
-        realized_pnl = position_closed.realized_pnl  # Realized PnL
-        self.realized_pnl += float(realized_pnl) if realized_pnl else 0
-        self.collector.add_closed_trade(position_closed)
-
-    def on_error(self, error: Exception) -> None:
-        self.log.error(f"An error occurred: {error}")
-        position = self.get_position()
-        if self.close_positions_on_stop and position is not None and position.is_open:
-            self.close_position()
-        self.stop()
 
     def get_account_balance(self) -> Decimal:
         # Get account balance for risk manager
@@ -247,9 +205,5 @@ class FVGStrategy(Strategy):
             usdt_balance = Decimal(str(usdt_free).split(" ")[0])
         return usdt_balance
 
-    def get_position(self):
-        if hasattr(self, "cache") and self.cache is not None:
-            positions = self.cache.positions_open(instrument_id=self.instrument_id)
-            if positions:
-                return positions[0]
-        return None
+
+    

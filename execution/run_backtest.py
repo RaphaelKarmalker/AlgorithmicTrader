@@ -17,7 +17,7 @@ from core.visualizing.dashboard.main import launch_dashbaord
 
 #STRAT PARAMETER
 
-yaml_name = "short_tha_bich.yaml"
+yaml_name = "simple_meme_short.yaml"
 
 yaml_path = str(Path(__file__).resolve().parents[1] / "config" / yaml_name)
 params, param_grid, keys, values, static_params, all_instrument_ids, all_bar_types, data_sources_normalized = load_and_split_params(yaml_path)

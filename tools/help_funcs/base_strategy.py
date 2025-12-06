@@ -265,12 +265,12 @@ class BaseStrategy(Strategy):
                 current_instrument["collector"].add_indicator(timestamp=last_timestamp, name="position", value=net_position if net_position is not None else None)
                 current_instrument["collector"].add_indicator(timestamp=last_timestamp, name="unrealized_pnl", value=0.0)
                 current_instrument["collector"].add_indicator(timestamp=last_timestamp, name="realized_pnl", value=float(current_instrument["realized_pnl"]))
-                logging_message = f"{inst_id}: " + current_instrument["collector"].save_data()
-                self.log.info(logging_message, color=LogColor.GREEN)
+                # logging_message = f"{inst_id}: " + current_instrument["collector"].save_data()
+                current_instrument["collector"].save_data()
             # Legacy aggregat
             self.realized_pnl += current_instrument["realized_pnl"]
         # Nach Instrument-Aggregation finaler General-Snapshot
         ts_now = self.clock.timestamp_ns()
         self._update_general_metrics(ts_now)
-        general_msg = self.general_collector.save_data()
-        self.log.info(f"GENERAL: {general_msg}", color=LogColor.GREEN)
+        # general_msg = self.general_collector.save_data()
+        self.general_collector.save_data()
